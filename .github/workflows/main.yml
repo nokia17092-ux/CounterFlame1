@@ -8,58 +8,60 @@ jobs:
     steps:
       - name: Download APK
         run: |
-          curl -L -o game.apk "https://drive.usercontent.google.com/download?id=1BkFudhadd-Oz2nuJe8IOq6fSwSxSrTrM&confirm=t"
+          curl -L -o cf1.1.3.apk "https://drive.usercontent.google.com/download?id=1BkFudhadd-Oz2nuJe8IOq6fSwSxSrTrM&confirm=t"
 
-      - name: Install Tools
+      - name: Install 7zip
         run: |
           choco install 7zip -y
 
       - name: Extract APK
         run: |
-          7z x game.apk -oAPK_Full -y
+          7z x cf1.1.3.apk -oAPK_Full -y
 
-      - name: Copy All Files to Unity Project
+      - name: Create Unity Project
         run: |
           mkdir UnityProject\Assets
           xcopy APK_Full UnityProject\Assets /E /I /Y
 
-      - name: Create Unity Project Files
+      - name: Create Unity Settings
         run: |
           mkdir UnityProject\ProjectSettings
           mkdir UnityProject\Packages
-          echo {"name":"com.counterflame.extracted","version":"1.1.3","unity":"2021.3"} > UnityProject\Packages\manifest.json
           echo m_EditorVersion: 2021.3.0f1 > UnityProject\ProjectSettings\ProjectVersion.txt
+
+      - name: Create Manifest
+        run: |
+          echo { > UnityProject\Packages\manifest.json
+          echo   "name": "com.counterflame.extracted", >> UnityProject\Packages\manifest.json
+          echo   "version": "1.1.3", >> UnityProject\Packages\manifest.json
+          echo   "unity": "2021.3" >> UnityProject\Packages\manifest.json
+          echo } >> UnityProject\Packages\manifest.json
 
       - name: Extract DLLs
         run: |
           mkdir UnityProject\Assets\Scripts
+          mkdir UnityProject\Assets\Plugins
           for /r APK_Full %i in (Assembly-CSharp*.dll) do copy "%i" UnityProject\Assets\Scripts\ 2>nul
           for /r APK_Full %i in (*.so) do copy "%i" UnityProject\Assets\Plugins\ 2>nul
-          mkdir UnityProject\Assets\Plugins 2>nul
 
-      - name: Extract Resources with AssetStudio
-        run: |
-          curl -L -o assetstudio.zip https://github.com/Perfare/AssetStudio/releases/download/v0.16.47/AssetStudio.net48.v0.16.47.zip
-          7z x assetstudio.zip -oAssetStudio -y
-          echo "AssetStudio downloaded - нужно запустить вручную для извлечения текстур"
-
-      - name: Create Batch Runner
+      - name: Create Batch File
         run: |
           echo @echo off > OpenInUnity.bat
           echo echo CounterFlame Unity Project >> OpenInUnity.bat
+          echo echo. >> OpenInUnity.bat
           echo echo Open UnityProject folder in Unity Hub >> OpenInUnity.bat
           echo pause >> OpenInUnity.bat
 
-      - name: Create Info File
+      - name: Create Readme
         run: |
           echo CounterFlame Extracted Project > UnityProject\README.txt
           echo. >> UnityProject\README.txt
-          echo How to open: >> UnityProject\README.txt
+          echo To open this project: >> UnityProject\README.txt
           echo 1. Install Unity 2021.3 >> UnityProject\README.txt
           echo 2. Open Unity Hub >> UnityProject\README.txt
-          echo 3. Add and open UnityProject folder >> UnityProject\README.txt
+          echo 3. Click Add and select UnityProject folder >> UnityProject\README.txt
 
-      - name: Create ZIP Archive
+      - name: Create ZIP
         run: |
           7z a -tzip CounterFlame_Unity_Source.zip UnityProject -r
           7z a -tzip CounterFlame_Unity_Source.zip OpenInUnity.bat
@@ -68,7 +70,7 @@ jobs:
         run: |
           7z a -sfx CounterFlame_Source_Installer.exe UnityProject OpenInUnity.bat -r
 
-      - name: Upload Artifacts
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: CounterFlame_Source
@@ -77,7 +79,10 @@ jobs:
             CounterFlame_Source_Installer.exe
           compression-level: 0
 
-      - name: Summary
+      - name: Complete
         shell: cmd
         run: |
-          echo Done! Files extracted to UnityProject folder
+          echo ========================================
+          echo Extraction Complete!
+          echo Files saved to UnityProject folder
+          echo ========================================
