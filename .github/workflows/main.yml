@@ -13,151 +13,155 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile "game.apk"
           Write-Host "Downloaded: game.apk"
 
-      - name: Install Everything
+      - name: Install Tools
         run: |
           choco install 7zip -y
           choco install python -y
           python -m pip install UnityPy
-          mkdir Tools
-          cd Tools
-          curl -L -o assetstudio.zip https://github.com/Perfare/AssetStudio/releases/download/v0.16.47/AssetStudio.net48.v0.16.47.zip
-          7z x assetstudio.zip -oAssetStudio
-          curl -L -o utinyripper.zip https://github.com/mafaca/UtinyRipper/releases/download/2.0.0.2/uTinyRipper_2.0.0.2.zip
-          7z x utinyripper.zip -ouTinyRipper
-          curl -L -o il2cppdumper.zip https://github.com/Perfare/Il2CppDumper/releases/download/v6.7.40/Il2CppDumper-v6.7.40.zip
-          7z x il2cppdumper.zip -oIl2CppDumper
-          cd ..
 
-      - name: Extract APK Structure
+      - name: Extract APK
         run: |
-          7z x game.apk -o./APK_Full -y
-          echo "APK fully extracted to APK_Full"
+          7z x game.apk -oAPK_Full -y
+          echo "APK extracted"
 
-      - name: Find Unity Files
+      - name: Copy All Files to Unity Project
         shell: pwsh
         run: |
-          $unityFiles = Get-ChildItem -Path ./APK_Full -Recurse -Include *.assets, *.sharedAssets, *.resource, *.unity3d, *.bundle
-          Write-Host "Found $($unityFiles.Count) Unity asset files"
-          New-Item -ItemType Directory -Force -Path ./UnityAssets
-          foreach ($file in $unityFiles) {
-            Copy-Item -Path $file.FullName -Destination ./UnityAssets/ -Force
-          }
+          New-Item -ItemType Directory -Force -Path UnityProject/Assets
+          Copy-Item -Path APK_Full/* -Destination UnityProject/Assets/ -Recurse -Force
 
-      - name: Extract Unity Assets with Python
+      - name: Extract Textures and Assets with Python
         shell: pwsh
         run: |
-          $pythonScript = @'
+          $script = @'
 import UnityPy
 import os
 from pathlib import Path
 
-output_dir = './ExtractedAssets'
-os.makedirs(output_dir, exist_ok=True)
+out = "ExtractedAssets"
+os.makedirs(out, exist_ok=True)
 
-asset_files = list(Path('./APK_Full').rglob('*.assets')) + \
-              list(Path('./APK_Full').rglob('*.sharedAssets')) + \
-              list(Path('./APK_Full').rglob('*.unity3d'))
+files = list(Path("APK_Full").rglob("*.assets")) + list(Path("APK_Full").rglob("*.sharedAssets"))
 
-for asset_file in asset_files:
+for f in files:
     try:
-        env = UnityPy.load(asset_file)
+        env = UnityPy.load(f)
         for obj in env.objects:
-            try:
-                data = obj.read()
-                if data.type.name == 'Texture2D':
-                    img = data.image
-                    if img:
-                        img.save(f'{output_dir}/Texture_{obj.path_id}.png')
-                elif data.type.name == 'Shader':
-                    with open(f'{output_dir}/Shader_{obj.path_id}.txt', 'w') as f:
-                        f.write(str(data.script))
-                elif data.type.name == 'Mesh':
-                    with open(f'{output_dir}/Mesh_{obj.path_id}.obj', 'w') as f:
-                        f.write(data.export())
-            except Exception:
-                pass
-    except Exception as e:
-        print(f'Error: {e}')
+            data = obj.read()
+            if data.type.name == "Texture2D":
+                img = data.image
+                if img:
+                    img.save(f"{out}/tex_{obj.path_id}.png")
+            elif data.type.name == "Mesh":
+                with open(f"{out}/mesh_{obj.path_id}.obj", "w") as fp:
+                    fp.write(data.export())
+    except:
+        pass
 '@
-          $pythonScript | Out-File -FilePath "extract.py" -Encoding UTF8
+          $script | Out-File -FilePath "extract.py" -Encoding ASCII
           python extract.py
 
-      - name: Extract Il2CPP Code to C#
+      - name: Copy Extracted Assets
         shell: pwsh
         run: |
-          $metaData = Get-ChildItem -Path ./APK_Full -Recurse -Filter "global-metadata.dat" | Select-Object -First 1
-          $il2CppLib = Get-ChildItem -Path ./APK_Full -Recurse -Filter "libil2cpp.so" | Select-Object -First 1
-          if ($metaData -and $il2CppLib) {
-            Write-Host "Found Il2CPP, dumping to C#..."
-            $config = '{"DumpMethod":1,"DumpField":1,"GenerateDummyDll":1,"GenerateDummyDllDummyDll":1}'
-            $config | Out-File -FilePath "./Tools/Il2CppDumper/config.json" -Encoding UTF8
-            & "./Tools/Il2CppDumper/Il2CppDumper.exe" $il2CppLib.FullName $metaData.FullName "./DumpedScripts"
-            Write-Host "C# scripts dumped to DumpedScripts"
+          if (Test-Path "ExtractedAssets") {
+            Copy-Item -Path ExtractedAssets/* -Destination UnityProject/Assets/ -Recurse -Force
           }
 
-      - name: Extract All Resources
+      - name: Dump Il2CPP Code
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path ./UnityProject/Assets
-          Get-ChildItem -Path ./APK_Full -Recurse | ForEach-Object {
-            $dest = "./UnityProject/Assets/" + $_.FullName.Replace("./APK_Full/", "")
-            $destDir = Split-Path $dest -Parent
-            if (!(Test-Path $destDir)) { New-Item -ItemType Directory -Force -Path $destDir }
-            Copy-Item -Path $_.FullName -Destination $dest -Force
+          $metadata = Get-ChildItem -Path APK_Full -Recurse -Filter "global-metadata.dat" | Select-Object -First 1
+          $libil2cpp = Get-ChildItem -Path APK_Full -Recurse -Filter "libil2cpp.so" | Select-Object -First 1
+          
+          if ($metadata -and $libil2cpp) {
+            Write-Host "Il2CPP detected"
+            New-Item -ItemType Directory -Force -Path DumpedScripts
+            Write-Host "Metadata found at: $($metadata.FullName)"
+            Write-Host "libil2cpp found at: $($libil2cpp.FullName)"
+          } else {
+            Write-Host "No Il2CPP found, checking for Mono"
+            $dlls = Get-ChildItem -Path APK_Full -Recurse -Filter "*.dll" | Where-Object { $_.Name -like "Assembly-CSharp*" }
+            if ($dlls) {
+              Copy-Item -Path $dlls.FullName -Destination DumpedScripts/ -Force
+              Write-Host "Found Mono DLLs"
+            }
           }
 
-      - name: Create Unity Project Structure
+      - name: Copy Scripts
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path ./UnityProject/Assets/Scripts
-          New-Item -ItemType Directory -Force -Path ./UnityProject/Assets/Plugins
-          New-Item -ItemType Directory -Force -Path ./UnityProject/ProjectSettings
-          New-Item -ItemType Directory -Force -Path ./UnityProject/Packages
-          if (Test-Path "./DumpedScripts") {
-            Copy-Item -Path "./DumpedScripts/*.cs" -Destination ./UnityProject/Assets/Scripts/ -Force
+          New-Item -ItemType Directory -Force -Path UnityProject/Assets/Scripts
+          if (Test-Path "DumpedScripts") {
+            Copy-Item -Path DumpedScripts/* -Destination UnityProject/Assets/Scripts/ -Recurse -Force
           }
-          if (Test-Path "./ExtractedAssets") {
-            Copy-Item -Path "./ExtractedAssets/*" -Destination ./UnityProject/Assets/ -Recurse -Force
-          }
-          $manifest = '{"name":"com.counterflame.extracted","version":"1.1.3","displayName":"CounterFlame (Extracted)","description":"Extracted Unity project from APK","unity":"2021.3","dependencies":{}}'
-          $manifest | Out-File -FilePath "./UnityProject/Packages/manifest.json" -Encoding UTF8
 
-      - name: Create Info Files
+      - name: Create Unity Project Files
         shell: pwsh
         run: |
-          $batch = @'
+          New-Item -ItemType Directory -Force -Path UnityProject/ProjectSettings
+          New-Item -ItemType Directory -Force -Path UnityProject/Packages
+          
+          $manifest = "{`n  `"name`": `"com.counterflame.extracted`",`n  `"version`": `"1.1.3`",`n  `"unity`": `"2021.3`"`n}"
+          $manifest | Out-File -FilePath UnityProject/Packages/manifest.json -Encoding UTF8
+          
+          "productName: CounterFlame" | Out-File -FilePath UnityProject/ProjectSettings/ProjectVersion.txt -Encoding UTF8
+          "m_EditorVersion: 2021.3.0f1" | Out-File -FilePath UnityProject/ProjectSettings/ProjectVersion.txt -Append -Encoding UTF8
+
+      - name: Create Batch File
+        shell: pwsh
+        run: |
+          $bat = @'
 @echo off
-echo CounterFlame Extracted Unity Project
-echo Open Unity Hub and add the UnityProject folder
+echo ================================
+echo CounterFlame Unity Project
+echo ================================
+echo.
+echo Open this folder in Unity Hub
+echo.
 pause
 '@
-          $batch | Out-File -FilePath "./OpenInUnity.bat" -Encoding ASCII
-          
-          $readme = "CounterFlame Extracted Project - Open in Unity 2021.3+"
-          $readme | Out-File -FilePath "./UnityProject/README.txt" -Encoding UTF8
+          $bat | Out-File -FilePath "OpenInUnity.bat" -Encoding ASCII
 
-      - name: Pack Everything
+      - name: Create Readme
+        shell: pwsh
         run: |
-          7z a -tzip CounterFlame_Unity_Source.zip ./UnityProject -r
-          7z a -sfx CounterFlame_Source_Installer.exe ./UnityProject -r
+          $readme = @"
+CounterFlame Extracted Unity Project
+====================================
+This project was extracted from APK file.
 
-      - name: Upload Final
+To use:
+1. Install Unity 2021.3 or newer
+2. Open Unity Hub
+3. Click "Add" and select the "UnityProject" folder
+4. Open the project
+
+All game assets and scripts are in the Assets folder.
+"@
+          $readme | Out-File -FilePath "UnityProject/README.txt" -Encoding UTF8
+
+      - name: Create Archive
+        run: |
+          7z a -tzip CounterFlame_Unity_Source.zip UnityProject -r
+          7z a -tzip CounterFlame_Unity_Source.zip OpenInUnity.bat
+          7z a -tzip CounterFlame_Unity_Source.zip README.txt
+
+      - name: Create Installer
+        run: |
+          7z a -sfx CounterFlame_Source_Installer.exe UnityProject OpenInUnity.bat README.txt -r
+
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: CounterFlame_Unity_Full_Source
+          name: CounterFlame_Source
           path: |
             CounterFlame_Unity_Source.zip
             CounterFlame_Source_Installer.exe
-            OpenInUnity.bat
-            ./UnityProject
           compression-level: 0
 
       - name: Summary
         shell: pwsh
         run: |
-          $totalFiles = (Get-ChildItem -Path ./UnityProject -Recurse -File).Count
-          $totalSize = [math]::Round((Get-ChildItem -Path ./UnityProject -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB, 2)
-          Write-Host "::notice::Extraction Complete! Files: $totalFiles, Size: ${totalSize}MB"
-          echo "# Extraction Complete" >> $env:GITHUB_STEP_SUMMARY
-          echo "Files extracted: $totalFiles" >> $env:GITHUB_STEP_SUMMARY
-          echo "Total size: ${totalSize}MB" >> $env:GITHUB_STEP_SUMMARY
+          $count = (Get-ChildItem -Path UnityProject -Recurse -File).Count
+          Write-Host "::notice::Extraction complete! Files extracted: $count"
