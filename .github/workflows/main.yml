@@ -24,25 +24,22 @@ jobs:
           7z x game.apk -oAPK_Full -y
           echo "APK extracted"
 
-      - name: Copy All Files to Unity Project
+      - name: Copy All Files
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path UnityProject/Assets
           Copy-Item -Path APK_Full/* -Destination UnityProject/Assets/ -Recurse -Force
 
-      - name: Extract Textures and Assets with Python
+      - name: Create Python Script
         shell: pwsh
         run: |
-          $script = @'
+          $code = @'
 import UnityPy
 import os
 from pathlib import Path
-
 out = "ExtractedAssets"
 os.makedirs(out, exist_ok=True)
-
 files = list(Path("APK_Full").rglob("*.assets")) + list(Path("APK_Full").rglob("*.sharedAssets"))
-
 for f in files:
     try:
         env = UnityPy.load(f)
@@ -58,7 +55,10 @@ for f in files:
     except:
         pass
 '@
-          $script | Out-File -FilePath "extract.py" -Encoding ASCII
+          Set-Content -Path "extract.py" -Value $code -Encoding ASCII
+
+      - name: Run Python Script
+        run: |
           python extract.py
 
       - name: Copy Extracted Assets
@@ -68,90 +68,60 @@ for f in files:
             Copy-Item -Path ExtractedAssets/* -Destination UnityProject/Assets/ -Recurse -Force
           }
 
-      - name: Dump Il2CPP Code
-        shell: pwsh
-        run: |
-          $metadata = Get-ChildItem -Path APK_Full -Recurse -Filter "global-metadata.dat" | Select-Object -First 1
-          $libil2cpp = Get-ChildItem -Path APK_Full -Recurse -Filter "libil2cpp.so" | Select-Object -First 1
-          
-          if ($metadata -and $libil2cpp) {
-            Write-Host "Il2CPP detected"
-            New-Item -ItemType Directory -Force -Path DumpedScripts
-            Write-Host "Metadata found at: $($metadata.FullName)"
-            Write-Host "libil2cpp found at: $($libil2cpp.FullName)"
-          } else {
-            Write-Host "No Il2CPP found, checking for Mono"
-            $dlls = Get-ChildItem -Path APK_Full -Recurse -Filter "*.dll" | Where-Object { $_.Name -like "Assembly-CSharp*" }
-            if ($dlls) {
-              Copy-Item -Path $dlls.FullName -Destination DumpedScripts/ -Force
-              Write-Host "Found Mono DLLs"
-            }
-          }
-
-      - name: Copy Scripts
+      - name: Find Scripts
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path UnityProject/Assets/Scripts
-          if (Test-Path "DumpedScripts") {
-            Copy-Item -Path DumpedScripts/* -Destination UnityProject/Assets/Scripts/ -Recurse -Force
+          $dlls = Get-ChildItem -Path APK_Full -Recurse -Filter "*.dll" | Where-Object { $_.Name -like "Assembly-CSharp*" }
+          if ($dlls) {
+            Copy-Item -Path $dlls.FullName -Destination UnityProject/Assets/Scripts/ -Force
+          }
+          $so = Get-ChildItem -Path APK_Full -Recurse -Filter "*.so"
+          if ($so) {
+            New-Item -ItemType Directory -Force -Path UnityProject/Assets/Plugins
+            Copy-Item -Path $so.FullName -Destination UnityProject/Assets/Plugins/ -Force
           }
 
-      - name: Create Unity Project Files
+      - name: Create Unity Settings
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path UnityProject/ProjectSettings
           New-Item -ItemType Directory -Force -Path UnityProject/Packages
-          
           $manifest = "{`n  `"name`": `"com.counterflame.extracted`",`n  `"version`": `"1.1.3`",`n  `"unity`": `"2021.3`"`n}"
           $manifest | Out-File -FilePath UnityProject/Packages/manifest.json -Encoding UTF8
-          
-          "productName: CounterFlame" | Out-File -FilePath UnityProject/ProjectSettings/ProjectVersion.txt -Encoding UTF8
-          "m_EditorVersion: 2021.3.0f1" | Out-File -FilePath UnityProject/ProjectSettings/ProjectVersion.txt -Append -Encoding UTF8
+          "m_EditorVersion: 2021.3.0f1" | Out-File -FilePath UnityProject/ProjectSettings/ProjectVersion.txt -Encoding UTF8
 
       - name: Create Batch File
         shell: pwsh
         run: |
           $bat = @'
 @echo off
-echo ================================
 echo CounterFlame Unity Project
-echo ================================
-echo.
-echo Open this folder in Unity Hub
-echo.
+echo Open UnityProject folder in Unity Hub
 pause
 '@
           $bat | Out-File -FilePath "OpenInUnity.bat" -Encoding ASCII
 
-      - name: Create Readme
+      - name: Create Info File
         shell: pwsh
         run: |
-          $readme = @"
-CounterFlame Extracted Unity Project
-====================================
-This project was extracted from APK file.
-
-To use:
-1. Install Unity 2021.3 or newer
-2. Open Unity Hub
-3. Click "Add" and select the "UnityProject" folder
-4. Open the project
-
-All game assets and scripts are in the Assets folder.
-"@
-          $readme | Out-File -FilePath "UnityProject/README.txt" -Encoding UTF8
+          $info = @'
+CounterFlame Extracted Project
+Install Unity 2021.3
+Open UnityProject folder in Unity Hub
+'@
+          $info | Out-File -FilePath "UnityProject/INFO.txt" -Encoding UTF8
 
       - name: Create Archive
         run: |
           7z a -tzip CounterFlame_Unity_Source.zip UnityProject -r
           7z a -tzip CounterFlame_Unity_Source.zip OpenInUnity.bat
-          7z a -tzip CounterFlame_Unity_Source.zip README.txt
 
-      - name: Create Installer
+      - name: Create EXE Installer
         run: |
-          7z a -sfx CounterFlame_Source_Installer.exe UnityProject OpenInUnity.bat README.txt -r
+          7z a -sfx CounterFlame_Source_Installer.exe UnityProject OpenInUnity.bat -r
 
-      - name: Upload Artifacts
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: CounterFlame_Source
@@ -160,8 +130,8 @@ All game assets and scripts are in the Assets folder.
             CounterFlame_Source_Installer.exe
           compression-level: 0
 
-      - name: Summary
+      - name: Done
         shell: pwsh
         run: |
           $count = (Get-ChildItem -Path UnityProject -Recurse -File).Count
-          Write-Host "::notice::Extraction complete! Files extracted: $count"
+          Write-Host "Done! Files: $count"
