@@ -41,8 +41,6 @@ jobs:
           if (Test-Path "APK_Full") {
             Copy-Item -Path APK_Full\* -Destination UnityProject\Assets\ -Recurse -Force
             Write-Host "Files copied to Unity project"
-          } else {
-            Write-Host "APK_Full folder not found"
           }
 
       - name: Create Unity Settings
@@ -51,18 +49,11 @@ jobs:
           New-Item -ItemType Directory -Force -Path UnityProject\ProjectSettings
           New-Item -ItemType Directory -Force -Path UnityProject\Packages
           "m_EditorVersion: 2021.3.0f1" | Out-File -FilePath UnityProject\ProjectSettings\ProjectVersion.txt
-          Write-Host "Unity settings created"
 
       - name: Create Manifest
         shell: pwsh
         run: |
-          $manifest = @'
-{
-  "name": "com.counterflame.pc",
-  "version": "1.1.3",
-  "unity": "2021.3"
-}
-'@
+          $manifest = '{"name":"com.counterflame.pc","version":"1.1.3","unity":"2021.3"}'
           $manifest | Out-File -FilePath UnityProject\Packages\manifest.json -Encoding UTF8
 
       - name: Create Scripts Folder
@@ -70,13 +61,11 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path UnityProject\Assets\Scripts
           New-Item -ItemType Directory -Force -Path UnityProject\Assets\Scripts\PCControls
-          Write-Host "Scripts folder created"
 
-      - name: Create PC Control Scripts
+      - name: Create PCInputManager
         shell: pwsh
         run: |
-          $scripts = @{
-            "PCInputManager.cs" = @'
+          $content = @'
 using UnityEngine;
 public class PCInputManager : MonoBehaviour
 {
@@ -87,6 +76,7 @@ public class PCInputManager : MonoBehaviour
     public bool jumpPressed;
     public bool reloadPressed;
     public bool interactPressed;
+    public bool crouchPressed;
     void Awake()
     {
         if (Instance == null) Instance = this;
@@ -101,10 +91,16 @@ public class PCInputManager : MonoBehaviour
         jumpPressed = Input.GetKeyDown(KeyCode.Space);
         reloadPressed = Input.GetKeyDown(KeyCode.R);
         interactPressed = Input.GetKeyDown(KeyCode.E);
+        crouchPressed = Input.GetKey(KeyCode.LeftShift);
     }
 }
 '@
-            "MouseLook.cs" = @'
+          $content | Out-File -FilePath "UnityProject\Assets\Scripts\PCControls\PCInputManager.cs" -Encoding UTF8
+
+      - name: Create MouseLook
+        shell: pwsh
+        run: |
+          $content = @'
 using UnityEngine;
 public class MouseLook : MonoBehaviour
 {
@@ -128,44 +124,108 @@ public class MouseLook : MonoBehaviour
     }
 }
 '@
-            "PlayerMovement.cs" = @'
+          $content | Out-File -FilePath "UnityProject\Assets\Scripts\PCControls\MouseLook.cs" -Encoding UTF8
+
+      - name: Create PlayerMovement
+        shell: pwsh
+        run: |
+          $content = @'
 using UnityEngine;
 public class PlayerMovement : MonoBehaviour
 {
-    public float speed = 5f;
+    public float walkSpeed = 5f;
+    public float crouchSpeed = 2.5f;
+    public float crouchHeight = 0.5f;
+    private float originalHeight;
     private Rigidbody rb;
     void Start()
     {
         rb = GetComponent<Rigidbody>();
         if (rb == null) rb = gameObject.AddComponent<Rigidbody>();
+        originalHeight = transform.localScale.y;
     }
     void Update()
     {
         float x = Input.GetAxis("Horizontal");
         float z = Input.GetAxis("Vertical");
         Vector3 move = transform.right * x + transform.forward * z;
-        rb.velocity = new Vector3(move.x * speed, rb.velocity.y, move.z * speed);
+        
+        bool isCrouching = Input.GetKey(KeyCode.LeftShift);
+        float currentSpeed = isCrouching ? crouchSpeed : walkSpeed;
+        
+        rb.velocity = new Vector3(move.x * currentSpeed, rb.velocity.y, move.z * currentSpeed);
+        
+        if (isCrouching)
+        {
+            transform.localScale = new Vector3(transform.localScale.x, crouchHeight, transform.localScale.z);
+        }
+        else
+        {
+            transform.localScale = new Vector3(transform.localScale.x, originalHeight, transform.localScale.z);
+        }
     }
 }
 '@
-          }
-          
-          foreach ($script in $scripts.Keys) {
-            $path = "UnityProject\Assets\Scripts\PCControls\$script"
-            $content = $scripts[$script]
-            $content | Out-File -FilePath $path -Encoding UTF8
-            Write-Host "Created: $script"
-          }
+          $content | Out-File -FilePath "UnityProject\Assets\Scripts\PCControls\PlayerMovement.cs" -Encoding UTF8
 
-      - name: Create Controls Help
+      - name: Create CrouchController
+        shell: pwsh
+        run: |
+          $content = @'
+using UnityEngine;
+public class CrouchController : MonoBehaviour
+{
+    private bool isCrouching = false;
+    private float originalHeight;
+    public float crouchHeight = 0.5f;
+    public float crouchTransitionSpeed = 10f;
+    private Camera playerCamera;
+    void Start()
+    {
+        originalHeight = transform.localScale.y;
+        playerCamera = GetComponentInChildren<Camera>();
+    }
+    void Update()
+    {
+        if (Input.GetKey(KeyCode.LeftShift))
+        {
+            isCrouching = true;
+            Vector3 newScale = new Vector3(transform.localScale.x, crouchHeight, transform.localScale.z);
+            transform.localScale = Vector3.Lerp(transform.localScale, newScale, Time.deltaTime * crouchTransitionSpeed);
+            if (playerCamera != null)
+            {
+                Vector3 camPos = playerCamera.transform.localPosition;
+                camPos.y = Mathf.Lerp(camPos.y, crouchHeight - 0.2f, Time.deltaTime * crouchTransitionSpeed);
+                playerCamera.transform.localPosition = camPos;
+            }
+        }
+        else
+        {
+            isCrouching = false;
+            Vector3 newScale = new Vector3(transform.localScale.x, originalHeight, transform.localScale.z);
+            transform.localScale = Vector3.Lerp(transform.localScale, newScale, Time.deltaTime * crouchTransitionSpeed);
+            if (playerCamera != null)
+            {
+                Vector3 camPos = playerCamera.transform.localPosition;
+                camPos.y = Mathf.Lerp(camPos.y, 0f, Time.deltaTime * crouchTransitionSpeed);
+                playerCamera.transform.localPosition = camPos;
+            }
+        }
+    }
+}
+'@
+          $content | Out-File -FilePath "UnityProject\Assets\Scripts\PCControls\CrouchController.cs" -Encoding UTF8
+
+      - name: Create Controls Help with Crouch
         shell: pwsh
         run: |
           $help = @'
 PC CONTROLS:
 - W/A/S/D : Move
-- Mouse : Look around  
+- Mouse : Look around
 - Left Click : Shoot
 - Space : Jump
+- Left Shift : Crouch / Присесть
 - R : Reload
 - E : Interact
 - ESC : Pause
@@ -186,6 +246,7 @@ echo - WASD: Movement
 echo - Mouse: Camera
 echo - Left Click: Shoot
 echo - Space: Jump
+echo - Left Shift: Crouch
 echo.
 echo Open UnityProject folder in Unity Hub
 echo.
@@ -199,22 +260,29 @@ pause
           $readme = @'
 CounterFlame PC Port
 ====================
-This is an extracted Unity project with PC controls added.
-
-How to use:
-1. Install Unity 2021.3 or newer
-2. Open Unity Hub
-3. Add and open the UnityProject folder
-4. Build for Windows (File -> Build Settings -> Windows)
-
 PC Controls Added:
-- Movement: WASD
-- Camera: Mouse
-- Shoot: Left Click
-- Jump: Space
-- Reload: R
-- Interact: E
-- Pause: ESC
+
+MOVEMENT:
+- W/A/S/D : Walk
+- Left Shift : Crouch / Присесть
+- Space : Jump
+
+COMBAT:
+- Left Mouse Button : Shoot
+- R : Reload
+- E : Interact
+
+CAMERA:
+- Mouse : Look around
+
+SYSTEM:
+- ESC : Pause menu
+
+How to build for PC:
+1. Install Unity 2021.3
+2. Open UnityProject folder in Unity Hub
+3. File -> Build Settings -> Windows
+4. Build and Run
 '@
           $readme | Out-File -FilePath "UnityProject\README.txt" -Encoding UTF8
 
@@ -239,6 +307,9 @@ PC Controls Added:
           Write-Host "========================================"
           Write-Host "CounterFlame PC Port Complete!"
           Write-Host "========================================"
-          Write-Host "Files extracted and PC controls added"
-          Write-Host "Download CounterFlame_PC_Port.zip"
+          Write-Host "PC Controls Added:"
+          Write-Host "- WASD: Movement"
+          Write-Host "- Mouse: Camera"
+          Write-Host "- Left Shift: Crouch (Присесть)"
+          Write-Host "- Space: Jump"
           Write-Host "========================================"
