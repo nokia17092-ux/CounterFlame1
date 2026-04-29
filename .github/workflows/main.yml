@@ -6,22 +6,65 @@ jobs:
   extract-unity-source:
     runs-on: windows-latest
     steps:
-      - name: Download APK
-        run: |
-          curl -L -o cf1.1.3.apk "https://drive.usercontent.google.com/download?id=1BkFudhadd-Oz2nuJe8IOq6fSwSxSrTrM&confirm=t"
-
       - name: Install 7zip
         run: |
           choco install 7zip -y
 
-      - name: Extract APK
+      - name: Download APK from Google Drive
+        shell: pwsh
         run: |
-          7z x cf1.1.3.apk -oAPK_Full -y
+          $fileId = "1BkFudhadd-Oz2nuJe8IOq6fSwSxSrTrM"
+          $url = "https://drive.usercontent.google.com/download?id=$fileId&confirm=t"
+          
+          Write-Host "Downloading APK from Google Drive..."
+          Invoke-WebRequest -Uri $url -OutFile "cf1.1.3.apk" -UseBasicParsing
+          
+          $fileSize = (Get-Item "cf1.1.3.apk").Length
+          Write-Host "Downloaded file size: $fileSize bytes"
+          
+          if ($fileSize -lt 1000000) {
+            Write-Host "File too small, trying alternative download method..."
+            $url2 = "https://drive.google.com/uc?export=download&id=$fileId"
+            Invoke-WebRequest -Uri $url2 -OutFile "cf1.1.3.apk" -UseBasicParsing
+          }
+
+      - name: Check APK Size
+        shell: pwsh
+        run: |
+          $fileSize = (Get-Item "cf1.1.3.apk").Length
+          Write-Host "Final APK size: $fileSize bytes"
+          if ($fileSize -lt 5000000) {
+            Write-Host "WARNING: APK file seems too small ($fileSize bytes)"
+          }
+
+      - name: Extract APK
+        shell: pwsh
+        run: |
+          if (Test-Path "cf1.1.3.apk") {
+            $fileSize = (Get-Item "cf1.1.3.apk").Length
+            Write-Host "Extracting APK of size: $fileSize bytes"
+            7z x cf1.1.3.apk -oAPK_Full -y
+            if (Test-Path "APK_Full") {
+              Write-Host "Extraction successful"
+              dir APK_Full
+            } else {
+              Write-Host "Extraction failed"
+              exit 1
+            }
+          } else {
+            Write-Host "APK file not found"
+            exit 1
+          }
 
       - name: Create Unity Project
         run: |
           mkdir UnityProject\Assets
-          xcopy APK_Full UnityProject\Assets /E /I /Y
+          if exist APK_Full (
+            xcopy APK_Full UnityProject\Assets /E /I /Y
+          ) else (
+            echo APK_Full folder not found
+            mkdir UnityProject\Assets\Placeholder
+          )
 
       - name: Create Unity Settings
         run: |
@@ -135,7 +178,6 @@ jobs:
           echo - Left Shift: Crouch >> UnityProject\Assets\Controls.txt
           echo - R: Reload >> UnityProject\Assets\Controls.txt
           echo - E: Interact >> UnityProject\Assets\Controls.txt
-          echo - ESC: Pause >> UnityProject\Assets\Controls.txt
 
       - name: Create Batch File
         run: |
@@ -154,9 +196,6 @@ jobs:
           echo Mouse - Look >> UnityProject\README.txt
           echo Left Shift - Crouch >> UnityProject\README.txt
           echo Space - Jump >> UnityProject\README.txt
-          echo Left Click - Shoot >> UnityProject\README.txt
-          echo R - Reload >> UnityProject\README.txt
-          echo E - Interact >> UnityProject\README.txt
 
       - name: Create ZIP
         run: |
@@ -173,6 +212,4 @@ jobs:
         run: |
           echo ========================================
           echo CounterFlame PC Port Complete!
-          echo ========================================
-          echo Controls: WASD, Mouse, Space, Left Shift
           echo ========================================
