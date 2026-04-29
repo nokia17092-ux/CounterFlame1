@@ -16,55 +16,22 @@ jobs:
           $fileId = "1BkFudhadd-Oz2nuJe8IOq6fSwSxSrTrM"
           $url = "https://drive.usercontent.google.com/download?id=$fileId&confirm=t"
           
-          Write-Host "Downloading APK from Google Drive..."
+          Write-Host "Downloading APK..."
           Invoke-WebRequest -Uri $url -OutFile "cf1.1.3.apk" -UseBasicParsing
           
-          $fileSize = (Get-Item "cf1.1.3.apk").Length
-          Write-Host "Downloaded file size: $fileSize bytes"
-          
-          if ($fileSize -lt 1000000) {
-            Write-Host "File too small, trying alternative download method..."
-            $url2 = "https://drive.google.com/uc?export=download&id=$fileId"
-            Invoke-WebRequest -Uri $url2 -OutFile "cf1.1.3.apk" -UseBasicParsing
-          }
-
-      - name: Check APK Size
-        shell: pwsh
-        run: |
-          $fileSize = (Get-Item "cf1.1.3.apk").Length
-          Write-Host "Final APK size: $fileSize bytes"
-          if ($fileSize -lt 5000000) {
-            Write-Host "WARNING: APK file seems too small ($fileSize bytes)"
-          }
+          $size = [math]::Round((Get-Item "cf1.1.3.apk").Length / 1MB, 2)
+          Write-Host "Downloaded: $size MB"
 
       - name: Extract APK
         shell: pwsh
         run: |
-          if (Test-Path "cf1.1.3.apk") {
-            $fileSize = (Get-Item "cf1.1.3.apk").Length
-            Write-Host "Extracting APK of size: $fileSize bytes"
-            7z x cf1.1.3.apk -oAPK_Full -y
-            if (Test-Path "APK_Full") {
-              Write-Host "Extraction successful"
-              dir APK_Full
-            } else {
-              Write-Host "Extraction failed"
-              exit 1
-            }
-          } else {
-            Write-Host "APK file not found"
-            exit 1
-          }
+          7z x cf1.1.3.apk -oAPK_Full -y
+          Write-Host "APK extracted"
 
       - name: Create Unity Project
         run: |
           mkdir UnityProject\Assets
-          if exist APK_Full (
-            xcopy APK_Full UnityProject\Assets /E /I /Y
-          ) else (
-            echo APK_Full folder not found
-            mkdir UnityProject\Assets\Placeholder
-          )
+          xcopy APK_Full UnityProject\Assets /E /I /Y
 
       - name: Create Unity Settings
         run: |
@@ -212,4 +179,6 @@ jobs:
         run: |
           echo ========================================
           echo CounterFlame PC Port Complete!
+          echo ========================================
+          echo Controls: WASD, Mouse, Space, Left Shift
           echo ========================================
