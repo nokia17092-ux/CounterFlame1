@@ -71,7 +71,7 @@ jobs:
           "
           
           # Check if file was downloaded in current directory
-          if (Get-ChildItem -Path . -Filter *.apk -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) {
+          if ((Get-ChildItem -Path . -Filter *.apk -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) {
             Write-Host "No APK in current directory, checking /tmp..."
             # Try to copy from /tmp if it exists there
             $tmpAPK = Get-ChildItem -Path /tmp -Filter *.apk -ErrorAction SilentlyContinue | Select-Object -First 1
