@@ -38,6 +38,7 @@ jobs:
         run: |
           $url = "https://mega.nz/file/Dc0QSJZI#TfyhLwJurazL9wuMTtbzuKRubt60QwFzKoATerErB0M"
           Write-Host "Starting MEGA download from: $url"
+          Write-Host "Current directory: $(Get-Location)"
           python -c "
           from mega import Mega
           import os
@@ -45,24 +46,16 @@ jobs:
               print('Initializing MEGA client...')
               m = Mega()
               print('Downloading file...')
-              file_path = m.download_url(r'$url', '/tmp')
+              # Don't specify a destination - let mega.py use current directory
+              file_path = m.download_url(r'$url')
               print(f'Download returned: {file_path}')
               
               # List all files in current directory
-              print('Files in current directory:')
+              print('Files in current directory after download:')
               for item in os.listdir('.'):
                   if os.path.isfile(item):
                       size = os.path.getsize(item)
                       print(f'  {item} ({size} bytes)')
-              
-              # List tmp directory
-              print('Files in /tmp:')
-              for item in os.listdir('/tmp'):
-                  path = os.path.join('/tmp', item)
-                  if os.path.isfile(path):
-                      size = os.path.getsize(path)
-                      if size > 1000000:  # Only show files > 1MB
-                          print(f'  {item} ({size} bytes)')
                           
           except Exception as e:
               print(f'Error: {str(e)}')
@@ -70,24 +63,21 @@ jobs:
               traceback.print_exc()
           "
           
+          Write-Host "Listing current directory files:"
+          Get-ChildItem -Path . -File | ForEach-Object { Write-Host "$($_.Name) - $($_.Length) bytes" }
+          
           # Check if file was downloaded in current directory
           if ((Get-ChildItem -Path . -Filter *.apk -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) {
-            Write-Host "No APK in current directory, checking /tmp..."
-            # Try to copy from /tmp if it exists there
-            $tmpAPK = Get-ChildItem -Path /tmp -Filter *.apk -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($tmpAPK) {
-              Copy-Item $tmpAPK.FullName . -Force
-              Write-Host "Copied APK from /tmp: $($tmpAPK.Name)"
-            } else {
-              Write-Host "No APK file found in /tmp either"
-              Write-Error "APK file was not created after MEGA download."
-              exit 1
-            }
+            Write-Host "No APK file found in current directory"
+            Write-Error "APK file was not created after MEGA download."
+            exit 1
           }
           
           $apkFile = Get-ChildItem -Path . -Filter *.apk | Select-Object -First 1
+          Write-Host "Found APK: $($apkFile.Name)"
           if ($apkFile.Name -ne "cf1.1.3.apk") {
             Rename-Item $apkFile.FullName "cf1.1.3.apk" -Force
+            Write-Host "Renamed to cf1.1.3.apk"
           }
           $size = [math]::Round((Get-Item "cf1.1.3.apk").Length / 1MB, 2)
           Write-Host "Download successful: $size MB"
