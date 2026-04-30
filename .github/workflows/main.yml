@@ -84,9 +84,9 @@ jobs:
       - name: Create Unity Project
         run: |
           mkdir UnityProject\Assets
-          if exist APK_Full (
-            xcopy APK_Full UnityProject\Assets /E /I /Y
-          )
+          if (Test-Path APK_Full) {
+            Copy-Item APK_Full UnityProject\Assets -Recurse -Force
+          }
 
       - name: Create Unity Settings
         run: |
