@@ -6,32 +6,51 @@ jobs:
   extract-unity-source:
     runs-on: windows-latest
     steps:
-      - name: Install 7zip
+      - name: Install 7zip and gdown
+        shell: pwsh
         run: |
           choco install 7zip -y
+          python -m pip install gdown
 
-      - name: Download APK from Google Drive
+      - name: Download APK with gdown
         shell: pwsh
         run: |
           $fileId = "1BkFudhadd-Oz2nuJe8IOq6fSwSxSrTrM"
-          $url = "https://drive.usercontent.google.com/download?id=$fileId&confirm=t"
-          
-          Write-Host "Downloading APK..."
-          Invoke-WebRequest -Uri $url -OutFile "cf1.1.3.apk" -UseBasicParsing
+          python -c "import gdown; gdown.download(id='$fileId', output='cf1.1.3.apk', quiet=False)"
           
           $size = [math]::Round((Get-Item "cf1.1.3.apk").Length / 1MB, 2)
           Write-Host "Downloaded: $size MB"
+
+      - name: Verify APK
+        shell: pwsh
+        run: |
+          $bytes = Get-Content "cf1.1.3.apk" -AsByteStream -TotalCount 4
+          $header = [System.Text.Encoding]::ASCII.GetString($bytes)
+          Write-Host "File header: $header"
+          
+          $size = (Get-Item "cf1.1.3.apk").Length
+          if ($size -lt 1000000) {
+            Write-Host "ERROR: File too small ($size bytes)"
+            exit 1
+          }
 
       - name: Extract APK
         shell: pwsh
         run: |
           7z x cf1.1.3.apk -oAPK_Full -y
-          Write-Host "APK extracted"
+          if (Test-Path "APK_Full") {
+            Write-Host "APK extracted successfully"
+          } else {
+            Write-Host "Extraction failed"
+            exit 1
+          }
 
       - name: Create Unity Project
         run: |
           mkdir UnityProject\Assets
-          xcopy APK_Full UnityProject\Assets /E /I /Y
+          if exist APK_Full (
+            xcopy APK_Full UnityProject\Assets /E /I /Y
+          )
 
       - name: Create Unity Settings
         run: |
@@ -179,6 +198,4 @@ jobs:
         run: |
           echo ========================================
           echo CounterFlame PC Port Complete!
-          echo ========================================
-          echo Controls: WASD, Mouse, Space, Left Shift
           echo ========================================
