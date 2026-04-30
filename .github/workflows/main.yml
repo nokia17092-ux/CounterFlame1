@@ -20,8 +20,18 @@ jobs:
       - name: Patch mega.py for Windows
         shell: bash
         run: |
-          MEGA_PY_PATH=$(python -c "from pathlib import Path; print(Path(__import__('mega').__file__).parent / 'mega.py')")
-          sed -i 's/shutil\.move(temp_output_file\.name, output_path)/temp_output_file.close()\n            shutil.move(temp_output_file.name, output_path)/g' "$MEGA_PY_PATH"
+          python -c "
+          from pathlib import Path
+          p = Path(__import__('mega').__file__).parent / 'mega.py'
+          text = p.read_text()
+          old = '            shutil.move(temp_output_file.name, output_path)'
+          new = '            temp_output_file.close()\n            shutil.move(temp_output_file.name, output_path)'
+          if old in text:
+              p.write_text(text.replace(old, new, 1))
+              print('Patched successfully')
+          else:
+              print('Patch not needed or already applied')
+          "
 
       - name: Download APK from MEGA
         shell: pwsh
