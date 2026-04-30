@@ -36,7 +36,7 @@ jobs:
       - name: Download APK from MEGA
         shell: pwsh
         run: |
-          $url = "https://mega.nz/file/6IsikJiS#GqIegriyvoIdzei6oYZWd-c0IC3S0ogAr_NyWGwcNPU"
+          $url = "https://mega.nz/file/Dc0QSJZI#TfyhLwJurazL9wuMTtbzuKRubt60QwFzKoATerErB0M"
           python -c "from mega import Mega; import sys; Mega().download_url(sys.argv[1])" $url
           if ($LASTEXITCODE -ne 0) {
             Write-Error "MEGA download failed. Check link validity and network access."
