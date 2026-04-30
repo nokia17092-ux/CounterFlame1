@@ -6,12 +6,36 @@ jobs:
   extract-unity-source:
     runs-on: windows-latest
     steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install 7zip and mega.py
         shell: pwsh
         run: |
           choco install 7zip -y
           python -m pip install mega.py==1.0.8
-          python -m pip install tenacity==9.1.4 --force-reinstall
+
+      - name: Patch mega.py for Windows
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path(__import__('mega').__file__).parent / 'mega.py'
+          text = p.read_text()
+          old = """            output_path = Path(dest_path + file_name)
+            shutil.move(temp_output_file.name, output_path)
+            return output_path
+"""
+          new = """            output_path = Path(dest_path + file_name)
+        temp_output_file.close()
+        shutil.move(temp_output_file.name, output_path)
+        return output_path
+"""
+          if old not in text:
+              raise SystemExit('patch failed')
+          p.write_text(text.replace(old, new, 1))
+          PY
 
       - name: Download APK from MEGA
         shell: pwsh
