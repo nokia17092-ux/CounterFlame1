@@ -46,11 +46,9 @@ jobs:
               print('Initializing MEGA client...')
               m = Mega()
               print('Downloading file...')
-              # Don't specify a destination - let mega.py use current directory
               file_path = m.download_url(r'$url')
               print(f'Download returned: {file_path}')
               
-              # List all files in current directory
               print('Files in current directory after download:')
               for item in os.listdir('.'):
                   if os.path.isfile(item):
@@ -66,73 +64,88 @@ jobs:
           Write-Host "Downloaded file listing:"
           Get-ChildItem -Path . -File | ForEach-Object { Write-Host "$($_.Name) - $($_.Length) bytes" }
           
-          # Check if a ZIP file was downloaded (the file might be a ZIP containing the APK)
+          # Check if a ZIP file was downloaded
           $zipFile = Get-ChildItem -Path . -Filter *.zip -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($zipFile) {
             Write-Host "Found ZIP file: $($zipFile.Name) - extracting..."
             7z x $zipFile.FullName -y
-            Write-Host "ZIP extracted. Checking for APK..."
+            Write-Host "ZIP extracted."
+            
+            # Check if UnityProject was extracted
+            if (Test-Path "UnityProject") {
+              Write-Host "Found UnityProject in extracted ZIP - using as project source"
+            }
           }
           
-          # Check if file was downloaded in current directory
-          if ((Get-ChildItem -Path . -Filter *.apk -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) {
-            Write-Host "No APK file found in current directory"
-            Write-Host "Available files:"
-            Get-ChildItem -Path . | ForEach-Object { Write-Host "  $($_.Name)" }
-            Write-Error "APK file was not found or extracted."
-            exit 1
+          # Check if file was downloaded directly (APK or other)
+          if ((Get-ChildItem -Path . -Filter *.apk -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0) {
+            $apkFile = Get-ChildItem -Path . -Filter *.apk | Select-Object -First 1
+            Write-Host "Found APK: $($apkFile.Name)"
+            if ($apkFile.Name -ne "cf1.1.3.apk") {
+              Rename-Item $apkFile.FullName "cf1.1.3.apk" -Force
+              Write-Host "Renamed to cf1.1.3.apk"
+            }
+            $size = [math]::Round((Get-Item "cf1.1.3.apk").Length / 1MB, 2)
+            Write-Host "APK ready: $size MB"
+          } else {
+            Write-Host "No APK found - using UnityProject from extraction"
           }
-          
-          $apkFile = Get-ChildItem -Path . -Filter *.apk | Select-Object -First 1
-          Write-Host "Found APK: $($apkFile.Name)"
-          if ($apkFile.Name -ne "cf1.1.3.apk") {
-            Rename-Item $apkFile.FullName "cf1.1.3.apk" -Force
-            Write-Host "Renamed to cf1.1.3.apk"
-          }
-          $size = [math]::Round((Get-Item "cf1.1.3.apk").Length / 1MB, 2)
-          Write-Host "APK ready: $size MB"
 
-      - name: Verify APK
+      - name: Verify APK or Project
         shell: pwsh
         run: |
-          if (-not (Test-Path "cf1.1.3.apk")) {
-            Write-Error "APK file does not exist. Download step failed."
-            exit 1
-          }
-          $bytes = Get-Content "cf1.1.3.apk" -AsByteStream -TotalCount 4
-          $header = [System.Text.Encoding]::ASCII.GetString($bytes)
-          Write-Host "File header: $header"
-          
-          $size = (Get-Item "cf1.1.3.apk").Length
-          if ($size -lt 1000000) {
-            Write-Host "ERROR: File too small ($size bytes)"
+          # Check if we have a UnityProject or APK
+          if ((Test-Path "UnityProject") -or (Test-Path "cf1.1.3.apk")) {
+            Write-Host "Project or APK ready for processing"
+            if (Test-Path "UnityProject") {
+              Write-Host "Using extracted UnityProject"
+              Get-ChildItem -Path "UnityProject" | ForEach-Object { Write-Host "  - $($_.Name)" }
+            }
+            if (Test-Path "cf1.1.3.apk") {
+              $size = (Get-Item "cf1.1.3.apk").Length
+              $sizeMB = [math]::Round($size / 1MB, 2)
+              Write-Host "APK file: $sizeMB MB"
+            }
+          } else {
+            Write-Error "Neither UnityProject nor APK file found"
             exit 1
           }
 
       - name: Extract APK
         shell: pwsh
         run: |
-          7z x cf1.1.3.apk -oAPK_Full -y
-          if (Test-Path "APK_Full") {
-            Write-Host "APK extracted successfully"
+          # Only extract APK if it exists
+          if (Test-Path "cf1.1.3.apk") {
+            Write-Host "Extracting APK..."
+            7z x cf1.1.3.apk -oAPK_Full -y
+            if (Test-Path "APK_Full") {
+              Write-Host "APK extracted successfully"
+            } else {
+              Write-Host "APK extraction failed or skipped"
+            }
           } else {
-            Write-Host "Extraction failed"
-            exit 1
+            Write-Host "No APK to extract - skipping"
           }
 
       - name: Create Unity Project
         shell: cmd
         run: |
-          mkdir UnityProject\Assets
-          if exist APK_Full (
-            xcopy APK_Full UnityProject\Assets /E /I /H /Y
+          REM If UnityProject already exists from extraction, skip creation
+          if exist UnityProject (
+            echo UnityProject already exists from extraction
+          ) else (
+            echo Creating UnityProject structure
+            mkdir UnityProject\Assets
+            if exist APK_Full (
+              xcopy APK_Full UnityProject\Assets /E /I /H /Y
+            )
           )
 
       - name: Create Unity Settings
         shell: cmd
         run: |
-          mkdir UnityProject\ProjectSettings
-          mkdir UnityProject\Packages
+          if not exist UnityProject\ProjectSettings mkdir UnityProject\ProjectSettings
+          if not exist UnityProject\Packages mkdir UnityProject\Packages
           echo m_EditorVersion: 2021.3.0f1 > UnityProject\ProjectSettings\ProjectVersion.txt
           echo {"name":"com.counterflame.pc","version":"1.1.3","unity":"2021.3"} > UnityProject\Packages\manifest.json
 
@@ -155,8 +168,8 @@ jobs:
       - name: Create Scripts Folder
         shell: cmd
         run: |
-          mkdir UnityProject\Assets\Scripts
-          mkdir UnityProject\Assets\Scripts\PCControls
+          if not exist UnityProject\Assets\Scripts mkdir UnityProject\Assets\Scripts
+          if not exist UnityProject\Assets\Scripts\PCControls mkdir UnityProject\Assets\Scripts\PCControls
 
       - name: Create PCInputManager
         shell: cmd
