@@ -19,23 +19,8 @@ jobs:
       - name: Patch mega.py for Windows
         shell: bash
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path(__import__('mega').__file__).parent / 'mega.py'
-          text = p.read_text()
-          old = """            output_path = Path(dest_path + file_name)
-            shutil.move(temp_output_file.name, output_path)
-            return output_path
-"""
-          new = """            output_path = Path(dest_path + file_name)
-            temp_output_file.close()
-            shutil.move(temp_output_file.name, output_path)
-            return output_path
-"""
-          if old not in text:
-              raise SystemExit('patch failed')
-          p.write_text(text.replace(old, new, 1))
-          PY
+          MEGA_PY_PATH=$(python -c "from pathlib import Path; print(Path(__import__('mega').__file__).parent / 'mega.py')")
+          sed -i 's/shutil\.move(temp_output_file\.name, output_path)/temp_output_file.close()\n            shutil.move(temp_output_file.name, output_path)/g' "$MEGA_PY_PATH"
 
       - name: Download APK from MEGA
         shell: pwsh
@@ -98,6 +83,21 @@ jobs:
           mkdir UnityProject\Packages
           echo m_EditorVersion: 2021.3.0f1 > UnityProject\ProjectSettings\ProjectVersion.txt
           echo {"name":"com.counterflame.pc","version":"1.1.3","unity":"2021.3"} > UnityProject\Packages\manifest.json
+
+      - name: Build Unity Project to EXE
+        run: |
+          REM Note: This step requires Unity Editor to be installed and licensed
+          REM If Unity is not installed, skip this step or install Unity manually
+          if exist "C:\Program Files\Unity\Hub\Editor\2021.3.0f1\Editor\Unity.exe" (
+            "C:\Program Files\Unity\Hub\Editor\2021.3.0f1\Editor\Unity.exe" -batchmode -nographics -projectPath %CD%\UnityProject -buildWindows64Player %CD%\CounterFlame.exe -quit
+            if exist CounterFlame.exe (
+              echo Build successful
+            ) else (
+              echo Build failed or Unity not properly configured
+            )
+          ) else (
+            echo Unity Editor not found. Please install Unity 2021.3.0f1 and run the build manually.
+          )
 
       - name: Create Scripts Folder
         run: |
@@ -210,8 +210,13 @@ jobs:
           echo @echo off > OpenInUnity.bat
           echo echo CounterFlame PC Port >> OpenInUnity.bat
           echo echo Controls: WASD, Mouse, Space, Left Shift >> OpenInUnity.bat
-          echo echo Open UnityProject folder in Unity Hub >> OpenInUnity.bat
-          echo pause >> OpenInUnity.bat
+          echo if exist CounterFlame.exe ( >> OpenInUnity.bat
+          echo   echo Running CounterFlame.exe >> OpenInUnity.bat
+          echo   CounterFlame.exe >> OpenInUnity.bat
+          echo ) else ( >> OpenInUnity.bat
+          echo   echo CounterFlame.exe not found. Open UnityProject folder in Unity Hub to build. >> OpenInUnity.bat
+          echo   pause >> OpenInUnity.bat
+          echo ) >> OpenInUnity.bat
 
       - name: Create Readme
         run: |
@@ -222,11 +227,17 @@ jobs:
           echo Mouse - Look >> UnityProject\README.txt
           echo Left Shift - Crouch >> UnityProject\README.txt
           echo Space - Jump >> UnityProject\README.txt
+          echo. >> UnityProject\README.txt
+          echo If CounterFlame.exe is included, you can run it directly. >> UnityProject\README.txt
+          echo Otherwise, open UnityProject in Unity Editor and build for Windows. >> UnityProject\README.txt
 
       - name: Create ZIP
         run: |
           7z a -tzip CounterFlame_PC_Port.zip UnityProject -r
           7z a -tzip CounterFlame_PC_Port.zip OpenInUnity.bat
+          if exist CounterFlame.exe (
+            7z a -tzip CounterFlame_PC_Port.zip CounterFlame.exe
+          )
 
       - name: Upload
         uses: actions/upload-artifact@v4
@@ -239,3 +250,8 @@ jobs:
           echo ========================================
           echo CounterFlame PC Port Complete!
           echo ========================================
+          if exist CounterFlame.exe (
+            echo EXE file created successfully.
+          ) else (
+            echo EXE not built. Open project in Unity to compile.
+          )
