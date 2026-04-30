@@ -37,21 +37,60 @@ jobs:
         shell: pwsh
         run: |
           $url = "https://mega.nz/file/Dc0QSJZI#TfyhLwJurazL9wuMTtbzuKRubt60QwFzKoATerErB0M"
-          python -c "from mega import Mega; import sys; Mega().download_url(sys.argv[1])" $url
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "MEGA download failed. Check link validity and network access."
-            exit 1
+          Write-Host "Starting MEGA download from: $url"
+          python -c "
+          from mega import Mega
+          import os
+          try:
+              print('Initializing MEGA client...')
+              m = Mega()
+              print('Downloading file...')
+              file_path = m.download_url(r'$url', '/tmp')
+              print(f'Download returned: {file_path}')
+              
+              # List all files in current directory
+              print('Files in current directory:')
+              for item in os.listdir('.'):
+                  if os.path.isfile(item):
+                      size = os.path.getsize(item)
+                      print(f'  {item} ({size} bytes)')
+              
+              # List tmp directory
+              print('Files in /tmp:')
+              for item in os.listdir('/tmp'):
+                  path = os.path.join('/tmp', item)
+                  if os.path.isfile(path):
+                      size = os.path.getsize(path)
+                      if size > 1000000:  # Only show files > 1MB
+                          print(f'  {item} ({size} bytes)')
+                          
+          except Exception as e:
+              print(f'Error: {str(e)}')
+              import traceback
+              traceback.print_exc()
+          "
+          
+          # Check if file was downloaded in current directory
+          if (Get-ChildItem -Path . -Filter *.apk -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) {
+            Write-Host "No APK in current directory, checking /tmp..."
+            # Try to copy from /tmp if it exists there
+            $tmpAPK = Get-ChildItem -Path /tmp -Filter *.apk -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($tmpAPK) {
+              Copy-Item $tmpAPK.FullName . -Force
+              Write-Host "Copied APK from /tmp: $($tmpAPK.Name)"
+            } else {
+              Write-Host "No APK file found in /tmp either"
+              Write-Error "APK file was not created after MEGA download."
+              exit 1
+            }
           }
+          
           $apkFile = Get-ChildItem -Path . -Filter *.apk | Select-Object -First 1
-          if (-not $apkFile) {
-            Write-Error "APK file was not created after MEGA download."
-            exit 1
-          }
           if ($apkFile.Name -ne "cf1.1.3.apk") {
             Rename-Item $apkFile.FullName "cf1.1.3.apk" -Force
           }
           $size = [math]::Round((Get-Item "cf1.1.3.apk").Length / 1MB, 2)
-          Write-Host "Downloaded: $size MB"
+          Write-Host "Download successful: $size MB"
 
       - name: Verify APK
         shell: pwsh
