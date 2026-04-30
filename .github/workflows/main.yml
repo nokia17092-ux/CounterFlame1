@@ -15,6 +15,7 @@ jobs:
         run: |
           choco install 7zip -y
           python -m pip install mega.py==1.0.8
+          python -m pip install tenacity==9.1.4 --force-reinstall
 
       - name: Patch mega.py for Windows
         shell: bash
